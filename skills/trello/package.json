@@ -1,0 +1,8 @@
+{
+  "name": "skill-trello",
+  "version": "1.0.0",
+  "description": "Claude Skill wrapper for trello MCP server",
+  "scripts": {
+    "setup": "pip install mcp"
+  }
+}

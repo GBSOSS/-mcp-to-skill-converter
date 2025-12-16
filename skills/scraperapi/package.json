@@ -1,0 +1,8 @@
+{
+  "name": "skill-scraperapi",
+  "version": "1.0.0",
+  "description": "Claude Skill wrapper for scraperapi MCP server",
+  "scripts": {
+    "setup": "pip install mcp"
+  }
+}

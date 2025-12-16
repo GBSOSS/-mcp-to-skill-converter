@@ -1,0 +1,13 @@
+{
+  "description": "Trello MCP server",
+  "command": "bun",
+  "args": [
+    "run",
+    "/path/to/mcp-server-trello/src/index.ts"
+  ],
+  "env": {
+    "TRELLO_API_KEY": "your-api-key",
+    "TRELLO_TOKEN": "your-token"
+  },
+  "name": "trello"
+}

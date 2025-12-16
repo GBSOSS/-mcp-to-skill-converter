@@ -6,7 +6,7 @@ Converts any MCP server into a Claude Skill with dynamic tool invocation.
 
 This implements the "progressive disclosure" pattern:
 - At startup: Only skill metadata is loaded (~100 tokens)
-- On use: Full tool list and instructions are loaded (~5k tokens)  
+- On use: Full tool list and instructions are loaded (~5k tokens)
 - On execution: Tools are called dynamically (0 context tokens)
 
 Usage:
@@ -23,47 +23,53 @@ import argparse
 
 class MCPSkillGenerator:
     """Generate a Skill from an MCP server configuration."""
-    
+
     def __init__(self, mcp_config: Dict[str, Any], output_dir: Path):
         self.mcp_config = mcp_config
         self.output_dir = Path(output_dir)
-        self.server_name = mcp_config.get('name', 'unnamed-mcp-server')
-        
+        self.server_name = mcp_config.get("name", "unnamed-mcp-server")
+
+    def _get_transport_type(self) -> str:
+        """Return transport type description."""
+        if self.mcp_config.get("type") == "http":
+            return f"HTTP ({self.mcp_config.get('url', 'unknown')})"
+        return "stdio (local process)"
+
     async def generate(self):
         """Generate the complete skill structure."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         print(f"Generating skill for MCP server: {self.server_name}")
-        
+
         # 1. Introspect MCP server to get tool list
         tools = await self._get_mcp_tools()
-        
+
         # 2. Generate SKILL.md
         self._generate_skill_md(tools)
-        
+
         # 3. Generate executor script
         self._generate_executor()
-        
+
         # 4. Generate config file
         self._generate_config()
-        
+
         # 5. Generate package.json (if needed)
         self._generate_package_json()
-        
+
         print(f"✓ Skill generated at: {self.output_dir}")
         print(f"✓ Tools available: {len(tools)}")
-        
+
     async def _get_mcp_tools(self) -> List[Dict[str, Any]]:
         """Connect to MCP server and get available tools."""
-        command = self.mcp_config.get('command', '')
-        
+        command = self.mcp_config.get("command", "")
+
         print(f"Introspecting MCP server: {command}")
-        
+
         # In a real implementation, this would:
         # 1. Start the MCP server process
         # 2. Send tools/list request
         # 3. Parse the response
-        
+
         # Mock response for demonstration
         return [
             {
@@ -74,23 +80,25 @@ class MCPSkillGenerator:
                     "properties": {
                         "param1": {"type": "string", "description": "First parameter"}
                     },
-                    "required": ["param1"]
-                }
+                    "required": ["param1"],
+                },
             }
         ]
-    
+
     def _generate_skill_md(self, tools: List[Dict[str, Any]]):
         """Generate the SKILL.md file with instructions for Claude."""
-        
+
         # Create tool list for Claude
-        tool_list = "\n".join([
-            f"- `{t['name']}`: {t.get('description', 'No description')}"
-            for t in tools
-        ])
-        
+        tool_list = "\n".join(
+            [
+                f"- `{t['name']}`: {t.get('description', 'No description')}"
+                for t in tools
+            ]
+        )
+
         # Count tools
         tool_count = len(tools)
-        
+
         content = f"""---
 name: {self.server_name}
 description: Dynamic access to {self.server_name} MCP server ({tool_count} tools)
@@ -100,6 +108,10 @@ version: 1.0.0
 # {self.server_name} Skill
 
 This skill provides dynamic access to the {self.server_name} MCP server without loading all tool definitions into context.
+
+## Transport Type
+
+This skill connects via: **{self._get_transport_type()}**
 
 ## Context Efficiency
 
@@ -211,14 +223,14 @@ Savings: ~{int((1 - 5000/(tool_count * 500)) * 100)}% reduction in typical usage
 *This skill was auto-generated from an MCP server configuration.*
 *Generator: mcp_to_skill.py*
 """
-        
+
         skill_path = self.output_dir / "SKILL.md"
         skill_path.write_text(content)
         print(f"✓ Generated: {skill_path}")
-    
+
     def _generate_executor(self):
         """Generate the executor script that communicates with MCP server."""
-        
+
         executor_code = '''#!/usr/bin/env python3
 """
 MCP Skill Executor
@@ -231,87 +243,61 @@ import sys
 import asyncio
 import argparse
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 # Check if mcp package is available
 try:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+    from mcp.client.streamable_http import streamablehttp_client
     HAS_MCP = True
 except ImportError:
     HAS_MCP = False
     print("Warning: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
 
 
-class MCPExecutor:
-    """Execute MCP tool calls dynamically."""
-    
-    def __init__(self, server_config):
-        if not HAS_MCP:
-            raise ImportError("mcp package is required. Install with: pip install mcp")
-            
-        self.server_config = server_config
-        self.session = None
-        self.stdio_transport = None
-        
-    async def connect(self):
-        """Connect to MCP server."""
+@asynccontextmanager
+async def mcp_connection(config):
+    """Context manager for MCP server connection."""
+    transport_type = config.get("type", "stdio")
+
+    if transport_type == "http":
+        url = config["url"]
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+    else:
         server_params = StdioServerParameters(
-            command=self.server_config["command"],
-            args=self.server_config.get("args", []),
-            env=self.server_config.get("env")
+            command=config["command"],
+            args=config.get("args", []),
+            env=config.get("env")
         )
-        
-        stdio_result = await stdio_client(server_params)
-        self.stdio_transport = stdio_result
-        read_stream, write_stream = stdio_result
-        
-        self.session = ClientSession(read_stream, write_stream)
-        await self.session.initialize()
-        
-    async def list_tools(self):
-        """Get list of available tools."""
-        if not self.session:
-            await self.connect()
-            
-        response = await self.session.list_tools()
-        return [
-            {
-                "name": tool.name,
-                "description": tool.description
-            }
-            for tool in response.tools
-        ]
-        
-    async def describe_tool(self, tool_name: str):
-        """Get detailed schema for a specific tool."""
-        if not self.session:
-            await self.connect()
-            
-        response = await self.session.list_tools()
-        for tool in response.tools:
-            if tool.name == tool_name:
-                return {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "inputSchema": tool.inputSchema
-                }
-        return None
-        
-    async def call_tool(self, tool_name: str, arguments: dict):
-        """Execute a tool call."""
-        if not self.session:
-            await self.connect()
-            
-        response = await self.session.call_tool(tool_name, arguments)
-        return response.content
-        
-    async def close(self):
-        """Close MCP connection."""
-        if self.session:
-            try:
-                await self.session.__aexit__(None, None, None)
-            except:
-                pass
+        async with stdio_client(server_params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+
+
+async def list_tools(session):
+    """Get list of available tools."""
+    response = await session.list_tools()
+    return [{"name": t.name, "description": t.description} for t in response.tools]
+
+
+async def describe_tool(session, tool_name: str):
+    """Get detailed schema for a specific tool."""
+    response = await session.list_tools()
+    for tool in response.tools:
+        if tool.name == tool_name:
+            return {"name": tool.name, "description": tool.description, "inputSchema": tool.inputSchema}
+    return None
+
+
+async def call_tool(session, tool_name: str, arguments: dict):
+    """Execute a tool call."""
+    response = await session.call_tool(tool_name, arguments)
+    return response.content
 
 
 async def main():
@@ -319,152 +305,166 @@ async def main():
     parser.add_argument("--call", help="JSON tool call to execute")
     parser.add_argument("--describe", help="Get tool schema")
     parser.add_argument("--list", action="store_true", help="List all tools")
-    
+
     args = parser.parse_args()
-    
-    # Load server config
+
     config_path = Path(__file__).parent / "mcp-config.json"
     if not config_path.exists():
-        print(f"Error: Configuration file not found: {config_path}", file=sys.stderr)
+        print(f"Error: Config not found: {config_path}", file=sys.stderr)
         sys.exit(1)
-        
+
     with open(config_path) as f:
         config = json.load(f)
-    
+
     if not HAS_MCP:
-        print("Error: mcp package not installed", file=sys.stderr)
-        print("Install with: pip install mcp", file=sys.stderr)
+        print("Error: mcp package not installed. Install with: pip install mcp", file=sys.stderr)
         sys.exit(1)
-    
-    executor = MCPExecutor(config)
-    
+
     try:
-        if args.list:
-            tools = await executor.list_tools()
-            print(json.dumps(tools, indent=2))
-            
-        elif args.describe:
-            schema = await executor.describe_tool(args.describe)
-            if schema:
-                print(json.dumps(schema, indent=2))
+        async with mcp_connection(config) as session:
+            if args.list:
+                tools = await list_tools(session)
+                print(json.dumps(tools, indent=2))
+
+            elif args.describe:
+                schema = await describe_tool(session, args.describe)
+                if schema:
+                    print(json.dumps(schema, indent=2))
+                else:
+                    print(f"Tool not found: {args.describe}", file=sys.stderr)
+                    sys.exit(1)
+
+            elif args.call:
+                call_data = json.loads(args.call)
+                result = await call_tool(session, call_data["tool"], call_data.get("arguments", {}))
+                if isinstance(result, list):
+                    for item in result:
+                        print(item.text if hasattr(item, 'text') else json.dumps(item, indent=2))
+                else:
+                    print(json.dumps(result, indent=2))
             else:
-                print(f"Tool not found: {args.describe}", file=sys.stderr)
-                sys.exit(1)
-                
-        elif args.call:
-            call_data = json.loads(args.call)
-            result = await executor.call_tool(
-                call_data["tool"],
-                call_data.get("arguments", {})
-            )
-            
-            # Format result
-            if isinstance(result, list):
-                for item in result:
-                    if hasattr(item, 'text'):
-                        print(item.text)
-                    else:
-                        print(json.dumps(item.__dict__ if hasattr(item, '__dict__') else item, indent=2))
-            else:
-                print(json.dumps(result.__dict__ if hasattr(result, '__dict__') else result, indent=2))
-        else:
-            parser.print_help()
-            
+                parser.print_help()
+
     except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    finally:
-        await executor.close()
 
 
 if __name__ == "__main__":
     asyncio.run(main())
 '''
-        
+
         executor_path = self.output_dir / "executor.py"
         executor_path.write_text(executor_code)
         executor_path.chmod(0o755)
         print(f"✓ Generated: {executor_path}")
-    
+
     def _generate_config(self):
         """Save MCP server config for the executor."""
         config_path = self.output_dir / "mcp-config.json"
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             json.dump(self.mcp_config, f, indent=2)
         print(f"✓ Generated: {config_path}")
-    
+
     def _generate_package_json(self):
         """Generate package.json for dependencies."""
         package = {
             "name": f"skill-{self.server_name}",
             "version": "1.0.0",
             "description": f"Claude Skill wrapper for {self.server_name} MCP server",
-            "scripts": {
-                "setup": "pip install mcp"
-            }
+            "scripts": {"setup": "pip install mcp"},
         }
-        
+
         package_path = self.output_dir / "package.json"
-        with open(package_path, 'w') as f:
+        with open(package_path, "w") as f:
             json.dump(package, f, indent=2)
         print(f"✓ Generated: {package_path}")
 
 
-async def convert_mcp_to_skill(mcp_config_path: str, output_dir: str):
-    """Convert an MCP server configuration to a Skill."""
-    
-    # Load MCP config
-    with open(mcp_config_path) as f:
-        mcp_config = json.load(f)
-    
-    # Generate skill
-    generator = MCPSkillGenerator(mcp_config, Path(output_dir))
-    await generator.generate()
-    
-    print("\n" + "="*60)
-    print("✓ Skill generation complete!")
-    print("="*60)
-    print(f"\nGenerated files:")
-    print(f"  - SKILL.md (instructions for Claude)")
-    print(f"  - executor.py (MCP communication handler)")
-    print(f"  - mcp-config.json (MCP server configuration)")
-    print(f"  - package.json (dependencies)")
-    
-    print(f"\nTo use this skill:")
-    print(f"1. Install dependencies:")
-    print(f"   cd {output_dir}")
-    print(f"   pip install mcp")
-    print(f"\n2. Copy to Claude skills directory:")
-    print(f"   cp -r {output_dir} ~/.claude/skills/")
-    print(f"\n3. Claude will discover it automatically")
-    
-    print(f"\nContext savings:")
-    print(f"  Before (MCP): All tools preloaded (~10k-50k tokens)")
-    print(f"  After (Skill): ~100 tokens until used")
-    print(f"  Reduction: ~90-99%")
+def parse_mcp_config(config_path: str, server_name: str = None) -> List[Dict[str, Any]]:
+    """Parse MCP config, supporting both single-server and mcpServers formats.
+
+    Returns list of (name, config) tuples.
+    """
+    with open(config_path) as f:
+        data = json.load(f)
+
+    # Standard mcpServers format: {"mcpServers": {"name": {...}, ...}}
+    if "mcpServers" in data:
+        servers = []
+        for name, config in data["mcpServers"].items():
+            if server_name and name != server_name:
+                continue
+            config["name"] = name
+            servers.append(config)
+        return servers
+
+    # Single-server format: {"name": "...", "command": "...", ...}
+    if "command" in data or "url" in data:
+        return [data]
+
+    raise ValueError("Invalid config format. Expected 'mcpServers' or single server config.")
+
+
+async def convert_mcp_to_skill(mcp_config_path: str, output_dir: str, server_name: str = None):
+    """Convert MCP server configuration(s) to Skill(s)."""
+
+    servers = parse_mcp_config(mcp_config_path, server_name)
+
+    if not servers:
+        if server_name:
+            print(f"Error: Server '{server_name}' not found in config")
+            return
+        print("Error: No servers found in config")
+        return
+
+    output_base = Path(output_dir)
+
+    for config in servers:
+        name = config.get("name", "unnamed-mcp-server")
+        # Always use server name as subdirectory
+        skill_dir = output_base / name
+
+        generator = MCPSkillGenerator(config, skill_dir)
+        await generator.generate()
+
+    print("\n" + "=" * 60)
+    print(f"✓ Generated {len(servers)} skill(s)!")
+    print("=" * 60)
+
+    print(f"\nTo use:")
+    print(f"  pip install mcp")
+    print(f"  cp -r {output_dir}/* ~/.claude/skills/")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert MCP server to Claude Skill with progressive disclosure",
-        epilog="Example: python mcp_to_skill.py --mcp-config github-mcp.json --output-dir ./skills/github"
+        description="Convert MCP server(s) to Claude Skill(s)",
+        epilog="""Examples:
+  # Single server config
+  python mcp_to_skill.py --mcp-config server.json --output-dir ./skills/myserver
+
+  # Standard mcpServers format (all servers)
+  python mcp_to_skill.py --mcp-config mcp.json --output-dir ./skills
+
+  # Standard mcpServers format (specific server)
+  python mcp_to_skill.py --mcp-config mcp.json --output-dir ./skills/github --server github
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--mcp-config",
-        required=True,
-        help="Path to MCP server configuration JSON"
+        "--mcp-config", required=True, help="Path to MCP config JSON (single or mcpServers format)"
     )
     parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Output directory for generated skill"
+        "--output-dir", required=True, help="Output directory for generated skill(s)"
     )
-    
+    parser.add_argument(
+        "--server", help="Specific server name to convert (for mcpServers format)"
+    )
+
     args = parser.parse_args()
-    
-    asyncio.run(convert_mcp_to_skill(args.mcp_config, args.output_dir))
+
+    asyncio.run(convert_mcp_to_skill(args.mcp_config, args.output_dir, args.server))
 
 
 if __name__ == "__main__":
