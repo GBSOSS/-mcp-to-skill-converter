@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "trello": {
+      "description": "Trello MCP server",
+      "command": "bun",
+      "args": [
+        "run",
+        "/path/to/mcp-server-trello/src/index.ts"
+      ],
+      "env": {
+        "TRELLO_API_KEY": "your-api-key",
+        "TRELLO_TOKEN": "your-token"
+      }
+    },
+    "aws-knowledge": {
+      "description": "AWS Knowledge MCP server",
+      "type": "http",
+      "url": "https://knowledge-mcp.global.api.aws"
+    },
+    "scraperapi": {
+      "description": "ScraperAPI MCP server",
+      "command": "uvx",
+      "args": [
+        "scraperapi-mcp-server"
+      ],
+      "env": {
+        "API_KEY": "your-api-key"
+      }
+    },
+    "datadog": {
+      "description": "Datadog MCP server",
+      "type": "http",
+      "url": "https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp?toolsets=core",
+      "headers": {
+        "DD_API_KEY": "your-api-key",
+        "DD_APPLICATION_KEY": "your-app-key"
+      }
+    }
+  }
+}

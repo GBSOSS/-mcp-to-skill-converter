@@ -1,0 +1,11 @@
+{
+  "description": "ScraperAPI MCP server",
+  "command": "uvx",
+  "args": [
+    "scraperapi-mcp-server"
+  ],
+  "env": {
+    "API_KEY": "your-api-key"
+  },
+  "name": "scraperapi"
+}

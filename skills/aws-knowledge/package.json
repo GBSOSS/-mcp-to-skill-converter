@@ -1,0 +1,8 @@
+{
+  "name": "skill-aws-knowledge",
+  "version": "1.0.0",
+  "description": "Claude Skill wrapper for aws-knowledge MCP server",
+  "scripts": {
+    "setup": "pip install mcp"
+  }
+}

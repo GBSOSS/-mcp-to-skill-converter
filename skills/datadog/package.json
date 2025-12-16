@@ -1,0 +1,8 @@
+{
+  "name": "skill-datadog",
+  "version": "1.0.0",
+  "description": "Claude Skill wrapper for datadog MCP server",
+  "scripts": {
+    "setup": "pip install mcp"
+  }
+}

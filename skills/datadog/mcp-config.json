@@ -1,0 +1,10 @@
+{
+  "description": "Datadog MCP server",
+  "type": "http",
+  "url": "https://mcp.datadoghq.eu/api/unstable/mcp-server/mcp?toolsets=core",
+  "headers": {
+    "DD_API_KEY": "your-api-key",
+    "DD_APPLICATION_KEY": "your-app-key"
+  },
+  "name": "datadog"
+}

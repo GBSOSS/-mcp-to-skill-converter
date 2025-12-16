@@ -1,0 +1,6 @@
+{
+  "description": "AWS Knowledge MCP server",
+  "type": "http",
+  "url": "https://knowledge-mcp.global.api.aws",
+  "name": "aws-knowledge"
+}
